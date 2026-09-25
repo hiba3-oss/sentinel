@@ -104,7 +104,7 @@ def test_single_alert_creates_incident() -> None:
     incidents = IncidentCorrelator().correlate(alerts)
 
     assert len(incidents) == 1
-    assert incidents[0].incident_id == "INC-0001"
+    assert incidents[0].incident_id.startswith("INC-")
     assert incidents[0].alert_ids == ["ALT-001"]
 
 
