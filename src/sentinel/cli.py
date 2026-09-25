@@ -15,6 +15,13 @@ from sentinel.detection.rules import (
 from sentinel.incidents import IncidentCorrelator
 from sentinel.ingestion.parser import parse_lines
 from sentinel.ingestion.reader import read_log_file
+from sentinel.intelligence.analyzer import ThreatIntelAnalyzer
+from sentinel.intelligence.enricher import AlertEnricher
+from sentinel.intelligence.matcher import IOCMatcher
+from sentinel.intelligence.store import IndicatorStore
+from sentinel.monitoring.runner import MonitoringRunner
+from sentinel.monitoring.service import MonitoringService
+from sentinel.monitoring.watcher import LogWatcher
 from sentinel.risk import RiskScorer
 from sentinel.storage import SentinelDatabase
 
@@ -25,9 +32,16 @@ app = typer.Typer(
 
 console = Console()
 
-info_app = typer.Typer(help="Sentinel information and version commands.")
+info_app = typer.Typer(
+    help="Sentinel information and version commands.",
+)
 
 app.add_typer(info_app, name="info")
+
+DEFAULT_DATABASE_PATH = Path("data/sentinel.db")
+DEFAULT_THREAT_INTEL_PATH = Path(
+    "data/threat_intel/indicators.json"
+)
 
 
 @info_app.command("version")
@@ -60,6 +74,18 @@ def build_detection_engine() -> DetectionEngine:
     )
 
 
+def build_threat_intel_analyzer(
+    feed_path: Path = DEFAULT_THREAT_INTEL_PATH,
+) -> ThreatIntelAnalyzer:
+    """Build the Sentinel threat intelligence analyzer."""
+
+    store = IndicatorStore(feed_path)
+    matcher = IOCMatcher(store)
+    enricher = AlertEnricher(matcher)
+
+    return ThreatIntelAnalyzer(enricher)
+
+
 def display_alerts(
     alerts: list,
     scorer: RiskScorer,
@@ -67,7 +93,9 @@ def display_alerts(
     """Display generated security alerts."""
 
     if not alerts:
-        console.print("[green]No security alerts detected.[/green]")
+        console.print(
+            "[green]No security alerts detected.[/green]"
+        )
         return
 
     table = Table(title="Security Alerts")
@@ -90,7 +118,11 @@ def display_alerts(
 
         table.add_row(
             alert.rule_id,
-            f"[{severity_style}]{alert.severity.value.upper()}[/{severity_style}]",
+            (
+                f"[{severity_style}]"
+                f"{alert.severity.value.upper()}"
+                f"[/{severity_style}]"
+            ),
             str(risk_score),
             alert.source_ip or "-",
             alert.description,
@@ -99,14 +131,19 @@ def display_alerts(
     console.print(table)
     console.print()
 
-    console.print(f"[bold red]{len(alerts)} security alert(s) detected.[/bold red]")
+    console.print(
+        f"[bold red]{len(alerts)} "
+        "security alert(s) detected.[/bold red]"
+    )
 
 
 def display_incidents(incidents: list) -> None:
     """Display correlated security incidents."""
 
     if not incidents:
-        console.print("[green]No security incidents created.[/green]")
+        console.print(
+            "[green]No security incidents created.[/green]"
+        )
         return
 
     console.print()
@@ -131,7 +168,11 @@ def display_incidents(incidents: list) -> None:
         table.add_row(
             incident.incident_id,
             incident.status.value.upper(),
-            f"[{severity_style}]{incident.severity.upper()}[/{severity_style}]",
+            (
+                f"[{severity_style}]"
+                f"{incident.severity.upper()}"
+                f"[/{severity_style}]"
+            ),
             str(incident.risk_score),
             incident.source_ip or "-",
             str(len(incident.alert_ids)),
@@ -140,7 +181,10 @@ def display_incidents(incidents: list) -> None:
     console.print(table)
     console.print()
 
-    console.print(f"[bold red]{len(incidents)} security incident(s) created.[/bold red]")
+    console.print(
+        f"[bold red]{len(incidents)} "
+        "security incident(s) created.[/bold red]"
+    )
 
 
 @app.command()
@@ -157,7 +201,9 @@ def analyze(
     """Analyze a security log file and persist alerts and incidents."""
 
     console.print()
-    console.print("[bold cyan]Sentinel Security Analysis[/bold cyan]")
+    console.print(
+        "[bold cyan]Sentinel Security Analysis[/bold cyan]"
+    )
     console.print("─" * 70)
 
     try:
@@ -174,7 +220,6 @@ def analyze(
     console.print()
 
     engine = build_detection_engine()
-
     alerts = engine.analyze(events)
 
     database = SentinelDatabase()
@@ -190,7 +235,6 @@ def analyze(
         return
 
     correlator = IncidentCorrelator()
-
     incidents = correlator.correlate(alerts)
 
     for incident in incidents:
@@ -200,11 +244,113 @@ def analyze(
 
 
 @app.command()
+def monitor(
+    log_file: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        help="Path to the log file to monitor continuously.",
+    ),
+    interval: float = typer.Option(
+        1.0,
+        "--interval",
+        "-i",
+        min=0.01,
+        help="Polling interval in seconds.",
+    ),
+    database_path: Path = typer.Option(  # noqa: B008
+        DEFAULT_DATABASE_PATH,
+        "--database",
+        "-d",
+        help="Path to the Sentinel SQLite database.",
+    ),
+    threat_intel_path: Path = typer.Option(  # noqa: B008
+        DEFAULT_THREAT_INTEL_PATH,
+        "--threat-intel",
+        help="Path to the threat intelligence feed.",
+    ),
+) -> None:
+    """Monitor a security log continuously."""
+
+    if not threat_intel_path.is_file():
+        console.print(
+            "[red]Error:[/red] "
+            f"Threat intelligence feed not found: "
+            f"{threat_intel_path}"
+        )
+        raise typer.Exit(code=1)
+
+    console.print()
+    console.print(
+        "[bold cyan]Sentinel Live Monitoring[/bold cyan]"
+    )
+    console.print("─" * 70)
+    console.print(f"Log file       : {log_file}")
+    console.print(f"Database       : {database_path}")
+    console.print(f"Threat Intel   : {threat_intel_path}")
+    console.print(f"Interval       : {interval:.2f}s")
+    console.print()
+    console.print(
+        "[green]Monitoring started.[/green] "
+        "Press [bold]Ctrl+C[/bold] to stop."
+    )
+    console.print()
+
+    runner: MonitoringRunner | None = None
+
+    try:
+        watcher = LogWatcher(
+            log_file,
+            start_at_end=True,
+        )
+
+        database = SentinelDatabase(database_path)
+
+        service = MonitoringService(
+            watcher=watcher,
+            detection_engine=build_detection_engine(),
+            threat_intel_analyzer=build_threat_intel_analyzer(
+                threat_intel_path
+            ),
+            incident_correlator=IncidentCorrelator(),
+            database=database,
+        )
+
+        runner = MonitoringRunner(
+            service=service,
+            interval=interval,
+        )
+
+        runner.start()
+
+        try:
+            runner.wait()
+        except KeyboardInterrupt:
+            console.print()
+            console.print(
+                "[yellow]Stopping Sentinel monitoring...[/yellow]"
+            )
+
+    except (FileNotFoundError, ValueError) as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    finally:
+        if runner is not None:
+            runner.stop()
+
+    console.print(
+        "[green]Monitoring stopped cleanly.[/green]"
+    )
+
+
+@app.command()
 def alerts() -> None:
     """Display stored security alerts."""
 
     database = SentinelDatabase()
-
     stored_alerts = database.get_alerts()
 
     if not stored_alerts:
@@ -231,7 +377,11 @@ def alerts() -> None:
         table.add_row(
             alert["id"],
             alert["rule_id"],
-            f"[{severity_style}]{alert['severity'].upper()}[/{severity_style}]",
+            (
+                f"[{severity_style}]"
+                f"{alert['severity'].upper()}"
+                f"[/{severity_style}]"
+            ),
             str(alert["risk_score"]),
             alert["source_ip"] or "-",
             alert["created_at"],
@@ -240,7 +390,9 @@ def alerts() -> None:
     console.print(table)
     console.print()
 
-    console.print(f"[bold]{len(stored_alerts)} stored alert(s).[/bold]")
+    console.print(
+        f"[bold]{len(stored_alerts)} stored alert(s).[/bold]"
+    )
 
 
 @app.command()
@@ -248,11 +400,12 @@ def incidents() -> None:
     """Display stored security incidents."""
 
     database = SentinelDatabase()
-
     stored_incidents = database.get_incidents()
 
     if not stored_incidents:
-        console.print("[green]No stored incidents.[/green]")
+        console.print(
+            "[green]No stored incidents.[/green]"
+        )
         return
 
     table = Table(title="Stored Security Incidents")
@@ -266,7 +419,9 @@ def incidents() -> None:
     table.add_column("Created")
 
     for incident in stored_incidents:
-        alert_ids = database.get_incident_alert_ids(incident["incident_id"])
+        alert_ids = database.get_incident_alert_ids(
+            incident["incident_id"]
+        )
 
         severity_style = {
             "low": "green",
@@ -278,7 +433,11 @@ def incidents() -> None:
         table.add_row(
             incident["incident_id"],
             incident["status"].upper(),
-            f"[{severity_style}]{incident['severity'].upper()}[/{severity_style}]",
+            (
+                f"[{severity_style}]"
+                f"{incident['severity'].upper()}"
+                f"[/{severity_style}]"
+            ),
             str(incident["risk_score"]),
             incident["source_ip"] or "-",
             str(len(alert_ids)),
@@ -288,7 +447,10 @@ def incidents() -> None:
     console.print(table)
     console.print()
 
-    console.print(f"[bold]{len(stored_incidents)} stored incident(s).[/bold]")
+    console.print(
+        f"[bold]{len(stored_incidents)} "
+        "stored incident(s).[/bold]"
+    )
 
 
 if __name__ == "__main__":

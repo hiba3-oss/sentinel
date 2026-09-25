@@ -59,9 +59,20 @@ class MonitoringService:
             for alert in alerts
         ]
 
-        incidents = self.incident_correlator.correlate(alerts)
+        enriched_persisted_alerts = [
+            enriched_alert.alert.model_copy(
+                update={
+                    "risk_score": enriched_alert.adjusted_risk_score,
+                }
+            )
+            for enriched_alert in enriched_alerts
+        ]
 
-        for alert in alerts:
+        incidents = self.incident_correlator.correlate(
+            enriched_persisted_alerts
+        )
+
+        for alert in enriched_persisted_alerts:
             self.database.save_alert(alert)
 
         for incident in incidents:

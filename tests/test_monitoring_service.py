@@ -90,11 +90,13 @@ def test_service_processes_and_persists_security_pipeline(
     assert len(enriched_alerts) == 1
     assert len(incidents) == 1
 
+    assert alerts[0].risk_score == 70
+
     assert enriched_alerts[0].has_threat_intelligence
     assert enriched_alerts[0].adjusted_risk_score == 95
 
     assert incidents[0].source_ip == "10.10.10.50"
-    assert incidents[0].risk_score == 70
+    assert incidents[0].risk_score == 95
 
     stored_alerts = service.database.get_alerts()
     stored_incidents = service.database.get_incidents()
@@ -103,7 +105,10 @@ def test_service_processes_and_persists_security_pipeline(
     assert len(stored_incidents) == 1
 
     assert stored_alerts[0]["id"] == alerts[0].id
+    assert stored_alerts[0]["risk_score"] == 95
+
     assert stored_incidents[0]["incident_id"] == incidents[0].incident_id
+    assert stored_incidents[0]["risk_score"] == 95
 
     stored_alert_ids = service.database.get_incident_alert_ids(
         incidents[0].incident_id

@@ -1,4 +1,4 @@
-"""Live log file watcher for Sentinel."""
+﻿"""Live log file watcher for Sentinel."""
 
 from pathlib import Path
 
@@ -34,17 +34,10 @@ class LogWatcher:
                 f"Log file not found: {self.log_path}"
             )
 
-        with self.log_path.open(
-            "r",
-            encoding=self.encoding,
-            newline="",
-        ) as file:
-            if self.start_at_end:
-                file.seek(0, 2)
-            else:
-                file.seek(0)
-
-            self._position = file.tell()
+        if self.start_at_end:
+            self._position = self.log_path.stat().st_size
+        else:
+            self._position = 0
 
     def read_new_lines(self) -> list[str]:
         """Read lines appended since the previous read."""
@@ -59,18 +52,26 @@ class LogWatcher:
         if current_size < self._position:
             self._position = 0
 
+        if current_size == self._position:
+            return []
+
         lines: list[str] = []
 
-        with self.log_path.open(
-            "r",
-            encoding=self.encoding,
-            newline="",
-        ) as file:
+        with self.log_path.open("rb") as file:
             file.seek(self._position)
 
-            for line in file:
-                lines.append(line.rstrip("\r\n"))
+            data = file.read()
 
             self._position = file.tell()
+
+        if not data:
+            return []
+
+        text = data.decode(
+            self.encoding,
+            errors="replace",
+        )
+
+        lines.extend(text.splitlines())
 
         return lines
