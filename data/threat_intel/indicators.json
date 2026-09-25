@@ -1,0 +1,26 @@
+﻿[
+  {
+    "value": "10.10.10.50",
+    "indicator_type": "ipv4",
+    "confidence": 90,
+    "severity": "high",
+    "source": "sentinel-test-feed",
+    "description": "Synthetic malicious SSH source used for Sentinel detection testing."
+  },
+  {
+    "value": "192.168.1.50",
+    "indicator_type": "ipv4",
+    "confidence": 70,
+    "severity": "medium",
+    "source": "sentinel-test-feed",
+    "description": "Synthetic suspicious source used for Sentinel detection testing."
+  },
+  {
+    "value": "malicious-example.test",
+    "indicator_type": "domain",
+    "confidence": 85,
+    "severity": "high",
+    "source": "sentinel-test-feed",
+    "description": "Synthetic malicious domain reserved for local testing."
+  }
+]
