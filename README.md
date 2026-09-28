@@ -80,6 +80,25 @@ The project is designed as a practical cybersecurity engineering portfolio demon
                                            │ SQLite Storage  │
                                            └─────────────────┘
 ```
+## Security Operations Center Dashboard
+
+Sentinel includes a Streamlit-based Security Operations Center dashboard for monitoring alerts, incidents, detection activity, and security findings.
+
+### Security Overview
+
+![Sentinel Security Overview](docs/screenshots/overview.png)
+
+### Alerts
+
+![Sentinel Alerts](docs/screenshots/alerts.png)
+
+### Alert Investigation
+
+![Sentinel Alert Investigation](docs/screenshots/alerts2.png)
+
+### Incidents
+
+![Sentinel Incidents](docs/screenshots/incidents.png)
 
 ---
 
