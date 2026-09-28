@@ -1,17 +1,16 @@
 """Sentinel REST API routes."""
 
-from fastapi import APIRouter, Depends, HTTPException
 from pathlib import Path
 from typing import Any
 
-from sentinel.api.security import get_api_key
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from sentinel.api.schemas import (
     AlertResponse,
     IncidentResponse,
     ThreatIntelligenceResponse,
 )
+from sentinel.api.security import get_api_key
 from sentinel.storage.database import SentinelDatabase
 
 router = APIRouter(

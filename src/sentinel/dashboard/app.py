@@ -1,10 +1,12 @@
-"""Sentinel Security Operations Center dashboard."""
+﻿"""Sentinel Security Operations Center dashboard."""
 
 from __future__ import annotations
 
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 
+from sentinel import __version__
 from sentinel.dashboard.data import (
     clear_dashboard_cache,
     get_alert_timeline,
@@ -32,7 +34,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-
 # ============================================================================
 # STYLE
 # ============================================================================
@@ -41,13 +42,13 @@ st.markdown(
     """
     <style>
         .block-container {
-            padding-top: 1.5rem;
+            padding-top: 1.2rem;
             padding-bottom: 2rem;
             max-width: 1550px;
         }
 
-        .sentinel-header {
-            padding: 1.4rem 1.6rem;
+        .soc-header {
+            padding: 1.5rem 1.7rem;
             border-radius: 14px;
             background:
                 linear-gradient(
@@ -56,36 +57,38 @@ st.markdown(
                     #1e293b 100%
                 );
             border: 1px solid #334155;
-            margin-bottom: 1.4rem;
+            margin-bottom: 1.5rem;
         }
 
-        .sentinel-title {
+        .soc-title {
             font-size: 2rem;
-            font-weight: 750;
+            font-weight: 800;
             color: #f8fafc;
             margin: 0;
         }
 
-        .sentinel-subtitle {
-            margin-top: 0.35rem;
+        .soc-subtitle {
+            margin-top: 0.4rem;
             color: #94a3b8;
             font-size: 0.95rem;
         }
 
-        .status-online {
+        .soc-badge {
             display: inline-block;
-            padding: 0.3rem 0.7rem;
+            margin-top: 0.9rem;
+            padding: 0.3rem 0.75rem;
             border-radius: 999px;
             background: #064e3b;
             color: #6ee7b7;
-            font-size: 0.78rem;
+            font-size: 0.75rem;
             font-weight: 700;
+            letter-spacing: 0.03em;
         }
 
         div[data-testid="stMetric"] {
             border: 1px solid #334155;
             border-radius: 12px;
-            padding: 0.9rem;
+            padding: 0.85rem;
         }
 
         .empty-state {
@@ -95,11 +98,65 @@ st.markdown(
             border-radius: 12px;
             color: #94a3b8;
         }
+
+        .incident-card {
+            padding: 1rem 1.1rem;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            background: #0f172a;
+            margin-bottom: 0.8rem;
+        }
+
+        .incident-id {
+            font-family: monospace;
+            font-size: 0.82rem;
+            color: #94a3b8;
+        }
+
+        .risk-high {
+            color: #fca5a5;
+            font-weight: 800;
+        }
+
+        .risk-medium {
+            color: #fcd34d;
+            font-weight: 800;
+        }
+
+        .risk-low {
+            color: #86efac;
+            font-weight: 800;
+        }
+
+        .timeline-item {
+            padding: 0.8rem 1rem;
+            border-left: 3px solid #475569;
+            margin-left: 0.4rem;
+            margin-bottom: 0.8rem;
+            background: #0f172a;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .timeline-time {
+            color: #94a3b8;
+            font-family: monospace;
+            font-size: 0.8rem;
+        }
+
+        .timeline-title {
+            font-weight: 700;
+            margin-top: 0.2rem;
+        }
+
+        .timeline-meta {
+            color: #94a3b8;
+            font-size: 0.85rem;
+            margin-top: 0.2rem;
+        }
     </style>
     """,
     unsafe_allow_html=True,
 )
-
 
 # ============================================================================
 # HELPERS
@@ -137,11 +194,44 @@ def status_label(status: str) -> str:
     )
 
 
+def risk_class(score: int) -> str:
+    """Return a CSS risk class."""
+
+    if score >= 80:
+        return "risk-high"
+
+    if score >= 50:
+        return "risk-medium"
+
+    return "risk-low"
+
+
 def show_empty_state(message: str) -> None:
     """Display a consistent empty state."""
 
     st.markdown(
         f'<div class="empty-state">{message}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def show_header() -> None:
+    """Display the Sentinel SOC header."""
+
+    st.markdown(
+        """
+        <div class="soc-header">
+            <div class="soc-title">
+                Sentinel Security Operations Center
+            </div>
+            <div class="soc-subtitle">
+                Defensive threat monitoring, detection and incident visibility
+            </div>
+            <div class="soc-badge">
+                DATABASE ONLINE
+            </div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -176,13 +266,17 @@ with st.sidebar:
 
     st.markdown("### System")
 
-    st.markdown(
-        '<span class="status-online">DATABASE ONLINE</span>',
-        unsafe_allow_html=True,
+    st.success(
+        "SQLite database online",
+         icon="🟢",
     )
 
     st.caption(
-        "SQLite / read-only dashboard"
+        f"Sentinel v{__version__}"
+    )
+
+    st.caption(
+        "Read-only dashboard"
     )
 
     st.divider()
@@ -195,7 +289,7 @@ with st.sidebar:
         st.rerun()
 
     st.caption(
-        "Automatic cache refresh: 5 seconds"
+        "Data cache refresh: 5 seconds"
     )
 
 
@@ -203,14 +297,7 @@ with st.sidebar:
 # HEADER
 # ============================================================================
 
-st.markdown(
-    "## Sentinel Security Operations Center"
-)
-
-st.caption(
-    "Defensive threat monitoring, detection and incident visibility"
-)
-
+show_header()
 
 # ============================================================================
 # DATABASE
@@ -221,12 +308,12 @@ try:
 
 except Exception as exc:
     st.error(
-        "Impossible de charger la base Sentinel."
+        "Unable to load the Sentinel database."
     )
 
     st.markdown(
         """
-        Vérifie que la base suivante existe :
+        Verify that the following database exists:
 
         `data/sentinel.db`
         """
@@ -234,7 +321,6 @@ except Exception as exc:
 
     st.exception(exc)
     st.stop()
-
 
 # ============================================================================
 # OVERVIEW
@@ -245,14 +331,14 @@ if page == "Overview":
     st.markdown("## Security Overview")
 
     st.caption(
-        "Real-time visibility into alerts, incidents and risk."
+        "High-level visibility into alerts, incidents and detection activity."
     )
 
     # ------------------------------------------------------------------------
     # KPI
     # ------------------------------------------------------------------------
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
 
     with col1:
         st.metric(
@@ -278,88 +364,77 @@ if page == "Overview":
             stats["open_incidents"],
         )
 
+    with col5:
+        st.metric(
+            "Investigating",
+            stats["investigating_incidents"],
+        )
+
+    with col6:
+        st.metric(
+            "Resolved",
+            stats["resolved_incidents"],
+        )
+
     # ------------------------------------------------------------------------
     # ALERT ACTIVITY
     # ------------------------------------------------------------------------
 
     st.markdown("### Alert Activity")
 
-    try:
-        timeline_df = get_alert_timeline()
+    timeline_df = get_alert_timeline()
 
-    except Exception as exc:
-        st.error(
-            "Unable to load alert activity."
+    if timeline_df.empty:
+        show_empty_state(
+            "No alert activity has been recorded yet."
         )
-        st.exception(exc)
 
     else:
-        if timeline_df.empty:
-            show_empty_state(
-                "No alert activity has been recorded yet."
-            )
+        timeline_chart = timeline_df.copy()
 
-        elif "timestamp" not in timeline_df.columns:
-            show_empty_state(
-                "Alert timeline data is unavailable."
-            )
+        timeline_chart["timestamp"] = pd.to_datetime(
+            timeline_chart["timestamp"],
+            errors="coerce",
+        )
 
-        elif "count" not in timeline_df.columns:
+        timeline_chart["count"] = pd.to_numeric(
+            timeline_chart["count"],
+            errors="coerce",
+        )
+
+        timeline_chart = timeline_chart.dropna(
+            subset=[
+                "timestamp",
+                "count",
+            ]
+        )
+
+        if timeline_chart.empty:
             show_empty_state(
-                "Alert timeline count data is unavailable."
+                "No valid alert timeline data is available."
             )
 
         else:
-            timeline_chart = timeline_df[
-                [
-                    "timestamp",
-                    "count",
-                ]
-            ].copy()
-
-            timeline_chart["timestamp"] = pd.to_datetime(
-                timeline_chart["timestamp"],
-                errors="coerce",
+            timeline_chart = timeline_chart.set_index(
+                "timestamp"
             )
 
-            timeline_chart["count"] = pd.to_numeric(
-                timeline_chart["count"],
-                errors="coerce",
+            timeline_chart = timeline_chart.rename(
+                columns={
+                    "count": "Alerts",
+                }
             )
 
-            timeline_chart = timeline_chart.dropna(
-                subset=[
-                    "timestamp",
-                    "count",
-                ]
+            st.line_chart(
+                timeline_chart["Alerts"],
+                height=300,
             )
-
-            if timeline_chart.empty:
-                show_empty_state(
-                    "No valid alert timeline data is available."
-                )
-
-            else:
-                timeline_chart = timeline_chart.set_index(
-                    "timestamp"
-                )
-
-                timeline_chart = timeline_chart.rename(
-                    columns={
-                        "count": "Alerts",
-                    }
-                )
-
-                st.line_chart(
-                    timeline_chart["Alerts"],
-                    height=300,
-                )
 
     # ------------------------------------------------------------------------
-    # SEVERITY + RULES
+    # DETECTION ACTIVITY
     # ------------------------------------------------------------------------
 
-    st.markdown("### Risk & Detection Activity")
+    st.markdown("### Detection Activity")
 
     col1, col2 = st.columns(2)
 
@@ -438,10 +513,11 @@ if page == "Overview":
                     "Alerts",
                     width="small",
                 ),
-                "Max Risk": st.column_config.NumberColumn(
+                "Max Risk": st.column_config.ProgressColumn(
                     "Max Risk",
                     min_value=0,
                     max_value=100,
+                    format="%d",
                 ),
             },
         )
@@ -492,6 +568,14 @@ if page == "Overview":
             recent,
             width="stretch",
             hide_index=True,
+            column_config={
+                "Risk": st.column_config.ProgressColumn(
+                    "Risk",
+                    min_value=0,
+                    max_value=100,
+                    format="%d",
+                ),
+            },
         )
 
 
@@ -584,22 +668,11 @@ elif page == "Alerts":
             hide_index=True,
             height=550,
             column_config={
-                "Alert ID": st.column_config.TextColumn(
-                    "Alert ID",
-                ),
-                "Rule": st.column_config.TextColumn(
-                    "Rule",
-                ),
-                "Title": st.column_config.TextColumn(
-                    "Title",
-                ),
-                "Description": st.column_config.TextColumn(
-                    "Description",
-                ),
-                "Risk": st.column_config.NumberColumn(
+                "Risk": st.column_config.ProgressColumn(
                     "Risk",
                     min_value=0,
                     max_value=100,
+                    format="%d",
                 ),
             },
         )
@@ -614,8 +687,12 @@ elif page == "Incidents":
     st.markdown("## Security Incidents")
 
     st.caption(
-        "Correlated security alerts grouped into incidents."
+        "Correlated security alerts grouped into investigation-ready incidents."
     )
+
+    # ------------------------------------------------------------------------
+    # INCIDENT STATUS KPI
+    # ------------------------------------------------------------------------
 
     col1, col2, col3 = st.columns(3)
 
@@ -645,7 +722,12 @@ elif page == "Incidents":
         )
 
     else:
-        st.markdown("### Incident Overview")
+
+               # --------------------------------------------------------------------
+        # INCIDENT ANALYTICS
+        # --------------------------------------------------------------------
+
+        st.markdown("### Incident Analytics")
 
         col1, col2 = st.columns(2)
 
@@ -660,13 +742,48 @@ elif page == "Incidents":
                 )
 
             else:
-                chart_df = severity_df.set_index(
-                    "severity"
+                chart_df = severity_df.copy()
+
+                chart_df["count"] = pd.to_numeric(
+                    chart_df["count"],
+                    errors="coerce",
                 )
 
-                st.bar_chart(
-                    chart_df["count"],
-                    height=250,
+                chart_df = chart_df.dropna(
+                    subset=["count"]
+                )
+
+                fig = px.bar(
+                    chart_df,
+                    x="severity",
+                    y="count",
+                    text="count",
+                    labels={
+                        "severity": "Severity",
+                        "count": "Incidents",
+                    },
+                    template="plotly_dark",
+                )
+
+                fig.update_layout(
+                    height=300,
+                    margin=dict(
+                        l=20,
+                        r=20,
+                        t=20,
+                        b=20,
+                    ),
+                    xaxis_title=None,
+                    yaxis_title="Incidents",
+                )
+
+                fig.update_traces(
+                    textposition="outside",
+                )
+
+                st.plotly_chart(
+                    fig,
+                    width="stretch",
                 )
 
         with col2:
@@ -680,14 +797,53 @@ elif page == "Incidents":
                 )
 
             else:
-                chart_df = status_df.set_index(
-                    "status"
+                chart_df = status_df.copy()
+
+                chart_df["count"] = pd.to_numeric(
+                    chart_df["count"],
+                    errors="coerce",
                 )
 
-                st.bar_chart(
-                    chart_df["count"],
-                    height=250,
+                chart_df = chart_df.dropna(
+                    subset=["count"]
                 )
+
+                fig = px.bar(
+                    chart_df,
+                    x="status",
+                    y="count",
+                    text="count",
+                    labels={
+                        "status": "Status",
+                        "count": "Incidents",
+                    },
+                    template="plotly_dark",
+                )
+
+                fig.update_layout(
+                    height=300,
+                    margin=dict(
+                        l=20,
+                        r=20,
+                        t=20,
+                        b=20,
+                    ),
+                    xaxis_title=None,
+                    yaxis_title="Incidents",
+                )
+
+                fig.update_traces(
+                    textposition="outside",
+                )
+
+                st.plotly_chart(
+                    fig,
+                    width="stretch",
+                )
+
+        # --------------------------------------------------------------------
+        # INCIDENT QUEUE
+        # --------------------------------------------------------------------
 
         st.markdown("### Incident Queue")
 
@@ -723,19 +879,11 @@ elif page == "Incidents":
             hide_index=True,
             height=550,
             column_config={
-                "Incident ID": st.column_config.TextColumn(
-                    "Incident ID",
-                ),
-                "Title": st.column_config.TextColumn(
-                    "Title",
-                ),
-                "Description": st.column_config.TextColumn(
-                    "Description",
-                ),
-                "Risk": st.column_config.NumberColumn(
+                "Risk": st.column_config.ProgressColumn(
                     "Risk",
                     min_value=0,
                     max_value=100,
+                    format="%d",
                 ),
             },
         )
@@ -750,7 +898,7 @@ elif page == "Investigation":
     st.markdown("## Incident Investigation")
 
     st.caption(
-        "Investigate correlated alerts and understand incident context."
+        "Analyze a correlated incident from its alerts to its threat intelligence."
     )
 
     incidents_df = get_incidents(limit=500)
@@ -761,16 +909,19 @@ elif page == "Investigation":
         )
 
     else:
+
         # --------------------------------------------------------------------
-        # Incident selector
+        # INCIDENT SELECTOR
         # --------------------------------------------------------------------
 
-        incident_options = incidents_df[
-            "incident_id"
-        ].astype(str).tolist()
+        incident_options = (
+            incidents_df["incident_id"]
+            .astype(str)
+            .tolist()
+        )
 
         selected_incident_id = st.selectbox(
-            "Select an incident",
+            "Incident",
             incident_options,
         )
 
@@ -782,16 +933,29 @@ elif page == "Investigation":
             st.error(
                 "The selected incident could not be loaded."
             )
+            st.stop()
 
-        else:
-            incident = incident_df.iloc[0]
+        incident = incident_df.iloc[0]
 
-            # ----------------------------------------------------------------
-            # Incident header
-            # ----------------------------------------------------------------
+        related_alerts = get_incident_alerts(
+            selected_incident_id
+        )
 
-            st.markdown("---")
+        threat_intel = get_incident_threat_intelligence(
+            selected_incident_id
+        )
 
+        # --------------------------------------------------------------------
+        # INCIDENT HEADER
+        # --------------------------------------------------------------------
+
+        st.markdown("---")
+
+        header_col1, header_col2 = st.columns(
+            [3, 1]
+        )
+
+        with header_col1:
             st.markdown(
                 f"### {incident['incident_id']}"
             )
@@ -800,83 +964,133 @@ elif page == "Investigation":
                 str(incident["title"])
             )
 
-            # ----------------------------------------------------------------
-            # Incident KPIs
-            # ----------------------------------------------------------------
-
-            col1, col2, col3, col4 = st.columns(4)
-
-            with col1:
-                st.metric(
-                    "Severity",
-                    severity_label(
-                        incident["severity"]
-                    ),
-                )
-
-            with col2:
-                st.metric(
-                    "Risk Score",
-                    f"{int(incident['risk_score'])} / 100",
-                )
-
-            with col3:
-                st.metric(
-                    "Status",
-                    status_label(
-                        incident["status"]
-                    ),
-                )
-
-            with col4:
-                source_ip = incident["source_ip"]
-
-                st.metric(
-                    "Source IP",
-                    source_ip
-                    if pd.notna(source_ip)
-                    else "Unknown",
-                )
-
-            # ----------------------------------------------------------------
-            # Incident description
-            # ----------------------------------------------------------------
-
-            st.markdown("### Incident Context")
-
-            st.info(
-                str(incident["description"])
+        with header_col2:
+            st.metric(
+                "Risk Score",
+                f"{int(incident['risk_score'])} / 100",
             )
 
-            # ----------------------------------------------------------------
-            # Timeline / metadata
-            # ----------------------------------------------------------------
+        # --------------------------------------------------------------------
+        # INCIDENT KPIs
+        # --------------------------------------------------------------------
 
-            col1, col2 = st.columns(2)
+        col1, col2, col3, col4, col5 = st.columns(5)
 
-            with col1:
-                st.markdown("#### Created")
-
-                st.write(
-                    str(incident["created_at"])
-                )
-
-            with col2:
-                st.markdown("#### Last Updated")
-
-                st.write(
-                    str(incident["updated_at"])
-                )
-
-            # ----------------------------------------------------------------
-            # Related alerts
-            # ----------------------------------------------------------------
-
-            st.markdown("### Related Alerts")
-
-            related_alerts = get_incident_alerts(
-                selected_incident_id
+        with col1:
+            st.metric(
+                "Severity",
+                severity_label(
+                    incident["severity"]
+                ),
             )
+
+        with col2:
+            st.metric(
+                "Status",
+                status_label(
+                    incident["status"]
+                ),
+            )
+
+        with col3:
+            source_ip = incident["source_ip"]
+
+            st.metric(
+                "Source IP",
+                source_ip
+                if pd.notna(source_ip)
+                else "Unknown",
+            )
+
+        with col4:
+            st.metric(
+                "Related Alerts",
+                len(related_alerts),
+            )
+
+        with col5:
+            st.metric(
+                "TI Matches",
+                len(threat_intel),
+            )
+
+        # --------------------------------------------------------------------
+        # RISK
+        # --------------------------------------------------------------------
+
+        risk_score = int(
+            incident["risk_score"]
+        )
+
+        st.markdown("### Risk Assessment")
+
+        st.progress(
+            max(
+                0,
+                min(
+                    risk_score,
+                    100,
+                ),
+            ),
+            text=f"Risk score: {risk_score}/100",
+        )
+
+        if risk_score >= 80:
+            st.error(
+                "High-risk incident requiring investigation."
+            )
+
+        elif risk_score >= 50:
+            st.warning(
+                "Medium-risk incident requiring review."
+            )
+
+        else:
+            st.success(
+                "Lower-risk incident."
+            )
+
+        # --------------------------------------------------------------------
+        # CONTEXT
+        # --------------------------------------------------------------------
+
+        st.markdown("### Incident Context")
+
+        st.info(
+            str(incident["description"])
+        )
+
+        metadata_col1, metadata_col2 = st.columns(2)
+
+        with metadata_col1:
+            st.markdown("**Created**")
+            st.code(
+                str(incident["created_at"])
+            )
+
+        with metadata_col2:
+            st.markdown("**Last Updated**")
+            st.code(
+                str(incident["updated_at"])
+            )
+
+        # --------------------------------------------------------------------
+        # INVESTIGATION TABS
+        # --------------------------------------------------------------------
+
+        tab_alerts, tab_ti, tab_timeline = st.tabs(
+            [
+                "Related Alerts",
+                "Threat Intelligence",
+                "Timeline",
+            ]
+        )
+
+        # --------------------------------------------------------------------
+        # RELATED ALERTS
+        # --------------------------------------------------------------------
+
+        with tab_alerts:
 
             if related_alerts.empty:
                 show_empty_state(
@@ -884,6 +1098,10 @@ elif page == "Investigation":
                 )
 
             else:
+                st.markdown(
+                    f"**{len(related_alerts)}** related alert(s)"
+                )
+
                 display_alerts = related_alerts.copy()
 
                 display_alerts["severity"] = (
@@ -909,33 +1127,18 @@ elif page == "Investigation":
                     display_alerts,
                     width="stretch",
                     hide_index=True,
-                    height=300,
+                    height=350,
                     column_config={
-                        "Alert ID": st.column_config.TextColumn(
-                            "Alert ID",
-                        ),
-                        "Detection Rule": st.column_config.TextColumn(
-                            "Detection Rule",
-                        ),
-                        "Title": st.column_config.TextColumn(
-                            "Title",
-                        ),
-                        "Description": st.column_config.TextColumn(
-                            "Description",
-                        ),
-                        "Risk": st.column_config.NumberColumn(
+                        "Risk": st.column_config.ProgressColumn(
                             "Risk",
                             min_value=0,
                             max_value=100,
+                            format="%d",
                         ),
                     },
                 )
 
-                # ------------------------------------------------------------
-                # Detection rules
-                # ------------------------------------------------------------
-
-                st.markdown("### Detection Rules")
+                st.markdown("#### Detection Rules")
 
                 rules = (
                     related_alerts["rule_id"]
@@ -945,149 +1148,142 @@ elif page == "Investigation":
                     .tolist()
                 )
 
-                for rule in rules:
-                    st.markdown(
-                        f"- `{rule}`"
+                if rules:
+                    rule_columns = st.columns(
+                        min(
+                            len(rules),
+                            4,
+                        )
                     )
 
-                # ------------------------------------------------------------
-                # Threat intelligence
-                # ------------------------------------------------------------
+                    for index, rule in enumerate(rules):
+                        with rule_columns[
+                            index % len(rule_columns)
+                        ]:
+                            st.code(
+                                rule
+                            )
 
-                st.markdown("### Threat Intelligence")
+        # --------------------------------------------------------------------
+        # THREAT INTELLIGENCE
+        # --------------------------------------------------------------------
 
-                threat_intel = get_incident_threat_intelligence(
-                    selected_incident_id
+        with tab_ti:
+
+            if threat_intel.empty:
+                show_empty_state(
+                    "No threat intelligence matches were found for this incident."
                 )
 
-                if threat_intel.empty:
-                    show_empty_state(
-                        "No threat intelligence matches were found for this incident."
+            else:
+
+                ti_col1, ti_col2, ti_col3 = st.columns(3)
+
+                confidence_values = pd.to_numeric(
+                    threat_intel["confidence"],
+                    errors="coerce",
+                )
+
+                adjusted_risk_values = pd.to_numeric(
+                    threat_intel["adjusted_risk_score"],
+                    errors="coerce",
+                )
+
+                with ti_col1:
+                    max_confidence = int(
+                        confidence_values.max()
                     )
 
-                else:
-                    st.caption(
-                        f"{len(threat_intel)} threat intelligence match(es) "
-                        "associated with this incident."
+                    st.metric(
+                        "Highest Confidence",
+                        f"{max_confidence}%",
                     )
 
-                    display_ti = threat_intel.copy()
-
-                    display_ti["severity"] = (
-                        display_ti["severity"]
-                        .map(severity_label)
+                with ti_col2:
+                    max_adjusted_risk = int(
+                        adjusted_risk_values.max()
                     )
 
-                    display_ti = display_ti.rename(
-                        columns={
-                            "alert_id": "Alert ID",
-                            "indicator_value": "Indicator",
-                            "indicator_type": "Type",
-                            "matched_value": "Matched Value",
-                            "observable_type": "Observable",
-                            "confidence": "Confidence",
-                            "severity": "Severity",
-                            "source": "Feed",
-                            "description": "Description",
-                            "adjusted_risk_score": "Adjusted Risk",
-                        }
+                    st.metric(
+                        "Adjusted Risk",
+                        f"{max_adjusted_risk}/100",
                     )
 
-                    st.dataframe(
-                        display_ti,
-                        width="stretch",
-                        hide_index=True,
-                        column_config={
-                            "Alert ID": st.column_config.TextColumn(
-                                "Alert ID",
-                            ),
-                            "Indicator": st.column_config.TextColumn(
-                                "Indicator",
-                            ),
-                            "Type": st.column_config.TextColumn(
-                                "Type",
-                            ),
-                            "Matched Value": st.column_config.TextColumn(
-                                "Matched Value",
-                            ),
-                            "Observable": st.column_config.TextColumn(
-                                "Observable",
-                            ),
-                            "Confidence": st.column_config.ProgressColumn(
-                                "Confidence",
-                                min_value=0,
-                                max_value=100,
-                                format="%d%%",
-                            ),
-                            "Severity": st.column_config.TextColumn(
-                                "Severity",
-                            ),
-                            "Feed": st.column_config.TextColumn(
-                                "Feed",
-                            ),
-                            "Description": st.column_config.TextColumn(
-                                "Description",
-                            ),
-                            "Adjusted Risk": st.column_config.NumberColumn(
-                                "Adjusted Risk",
-                                min_value=0,
-                                max_value=100,
-                            ),
-                        },
+                with ti_col3:
+                    feeds = (
+                        threat_intel["source"]
+                        .dropna()
+                        .astype(str)
+                        .nunique()
                     )
 
-                    # --------------------------------------------------------
-                    # Threat intelligence summary
-                    # --------------------------------------------------------
+                    st.metric(
+                        "Intel Feeds",
+                        feeds,
+                    )
 
-                    st.markdown("#### Threat Intelligence Summary")
+                st.markdown(
+                    f"**{len(threat_intel)}** intelligence match(es)"
+                )
 
-                    ti_col1, ti_col2, ti_col3 = st.columns(3)
+                display_ti = threat_intel.copy()
 
-                    with ti_col1:
-                        max_confidence = int(
-                            pd.to_numeric(
-                                threat_intel["confidence"],
-                                errors="coerce",
-                            ).max()
-                        )
+                display_ti["severity"] = (
+                    display_ti["severity"]
+                    .map(severity_label)
+                )
 
-                        st.metric(
-                            "Highest Confidence",
-                            f"{max_confidence}%",
-                        )
+                display_ti = display_ti.rename(
+                    columns={
+                        "alert_id": "Alert ID",
+                        "indicator_value": "Indicator",
+                        "indicator_type": "Type",
+                        "matched_value": "Matched Value",
+                        "observable_type": "Observable",
+                        "confidence": "Confidence",
+                        "severity": "Severity",
+                        "source": "Feed",
+                        "description": "Description",
+                        "adjusted_risk_score": "Adjusted Risk",
+                    }
+                )
 
-                    with ti_col2:
-                        max_adjusted_risk = int(
-                            pd.to_numeric(
-                                threat_intel["adjusted_risk_score"],
-                                errors="coerce",
-                            ).max()
-                        )
-
-                        st.metric(
+                st.dataframe(
+                    display_ti,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "Confidence": st.column_config.ProgressColumn(
+                            "Confidence",
+                            min_value=0,
+                            max_value=100,
+                            format="%d%%",
+                        ),
+                        "Adjusted Risk": st.column_config.ProgressColumn(
                             "Adjusted Risk",
-                            f"{max_adjusted_risk} / 100",
-                        )
+                            min_value=0,
+                            max_value=100,
+                            format="%d",
+                        ),
+                    },
+                )
 
-                    with ti_col3:
-                        feeds = (
-                            threat_intel["source"]
-                            .dropna()
-                            .astype(str)
-                            .nunique()
-                        )
+        # --------------------------------------------------------------------
+        # TIMELINE
+        # --------------------------------------------------------------------
 
-                        st.metric(
-                            "Intel Feeds",
-                            feeds,
-                        )
+        with tab_timeline:
 
-                # ------------------------------------------------------------
-                # Investigation timeline
-                # ------------------------------------------------------------
+            if related_alerts.empty:
+                show_empty_state(
+                    "No timeline events are available."
+                )
 
-                st.markdown("### Investigation Timeline")
+            else:
+
+                st.markdown(
+                    "### Investigation Timeline"
+                )
 
                 timeline = related_alerts[
                     [
@@ -1126,13 +1322,25 @@ elif page == "Investigation":
                     )
 
                     st.markdown(
-                        f"**{timestamp}**  \\n"
-                        f"**{severity}** ? {title}  \\n"
-                        f"`{rule}` ? Risk: **{risk}/100**"
+                        f"""
+                        <div class="timeline-item">
+                            <div class="timeline-time">
+                                {timestamp}
+                            </div>
+                            <div class="timeline-title">
+                                {severity} — {title}
+                            </div>
+                            <div class="timeline-meta">
+                                Detection rule:
+                                <code>{rule}</code>
+                                &nbsp; | &nbsp;
+                                Risk:
+                                <strong>{risk}/100</strong>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
                     )
-
-                    st.divider()
-
 
 # ============================================================================
 # FOOTER
@@ -1141,7 +1349,7 @@ elif page == "Investigation":
 st.divider()
 
 st.caption(
-    "Sentinel v0.5.0 • Defensive cybersecurity monitoring • "
+    f"Sentinel v{__version__} • Defensive cybersecurity monitoring • "
     "Read-only SOC dashboard"
 )
 
