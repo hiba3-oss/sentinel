@@ -1,4 +1,4 @@
-﻿"""Read-only data access layer for the Sentinel Streamlit dashboard."""
+"""Read-only data access layer for the Sentinel Streamlit dashboard."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 
 # ============================================================================
-# DATABASE CONFIGURATION
+# DATABASE
 # ============================================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -17,25 +17,24 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DB_PATH = PROJECT_ROOT / "data" / "sentinel.db"
 
 
-# ============================================================================
-# DATABASE CONNECTION
-# ============================================================================
-
-
 def _get_connection() -> sqlite3.Connection:
-    """Open the Sentinel database in read-only mode."""
+    """Open a read-only SQLite connection."""
 
     if not DB_PATH.exists():
         raise FileNotFoundError(
             f"Sentinel database not found: {DB_PATH}"
         )
 
-    database_uri = f"file:{DB_PATH.as_posix()}?mode=ro"
+    database_uri = (
+        f"file:{DB_PATH.as_posix()}?mode=ro"
+    )
 
-    return sqlite3.connect(
+    connection = sqlite3.connect(
         database_uri,
         uri=True,
     )
+
+    return connection
 
 
 # ============================================================================
@@ -43,55 +42,58 @@ def _get_connection() -> sqlite3.Connection:
 # ============================================================================
 
 
-@st.cache_data(ttl=5, show_spinner=False)
+@st.cache_data(
+    ttl=5,
+    show_spinner=False,
+)
 def get_dashboard_stats() -> dict[str, int]:
     """Return high-level dashboard statistics."""
 
+    query = """
+        SELECT
+            (SELECT COUNT(*) FROM alerts) AS total_alerts,
+
+            (
+                SELECT COUNT(*)
+                FROM incidents
+                WHERE status = 'open'
+            ) AS open_incidents,
+
+            (
+                SELECT COUNT(*)
+                FROM incidents
+                WHERE status = 'investigating'
+            ) AS investigating_incidents,
+
+            (
+                SELECT COUNT(*)
+                FROM incidents
+                WHERE status = 'resolved'
+            ) AS resolved_incidents,
+
+            (
+                SELECT COUNT(*)
+                FROM alerts
+                WHERE severity = 'critical'
+            ) AS critical_alerts,
+
+            (
+                SELECT COUNT(*)
+                FROM alerts
+                WHERE severity = 'high'
+            ) AS high_alerts
+    """
+
     with _get_connection() as connection:
-        alerts = connection.execute(
-            "SELECT COUNT(*) FROM alerts"
-        ).fetchone()[0]
-
-        incidents = connection.execute(
-            "SELECT COUNT(*) FROM incidents"
-        ).fetchone()[0]
-
-        critical_alerts = connection.execute(
-            "SELECT COUNT(*) FROM alerts WHERE severity = 'critical'"
-        ).fetchone()[0]
-
-        high_alerts = connection.execute(
-            "SELECT COUNT(*) FROM alerts WHERE severity = 'high'"
-        ).fetchone()[0]
-
-        open_incidents = connection.execute(
-            "SELECT COUNT(*) FROM incidents WHERE status = 'open'"
-        ).fetchone()[0]
-
-        investigating_incidents = connection.execute(
-            """
-            SELECT COUNT(*)
-            FROM incidents
-            WHERE status = 'investigating'
-            """
-        ).fetchone()[0]
-
-        resolved_incidents = connection.execute(
-            """
-            SELECT COUNT(*)
-            FROM incidents
-            WHERE status = 'resolved'
-            """
-        ).fetchone()[0]
+        row = connection.execute(query).fetchone()
 
     return {
-        "total_alerts": alerts,
-        "total_incidents": incidents,
-        "critical_alerts": critical_alerts,
-        "high_alerts": high_alerts,
-        "open_incidents": open_incidents,
-        "investigating_incidents": investigating_incidents,
-        "resolved_incidents": resolved_incidents,
+        "total_alerts": int(row[0]),
+        "open_incidents": int(row[1]),
+        "investigating_incidents": int(row[2]),
+        "resolved_incidents": int(row[3]),
+        "critical_alerts": int(row[4]),
+        "high_alerts": int(row[5]),
     }
 
 
@@ -100,11 +102,14 @@ def get_dashboard_stats() -> dict[str, int]:
 # ============================================================================
 
 
-@st.cache_data(ttl=5, show_spinner=False)
-def get_alerts(limit: int = 100) -> pd.DataFrame:
+@st.cache_data(
+    ttl=5,
+    show_spinner=False,
+)
+def get_alerts(
+    limit: int = 100,
+) -> pd.DataFrame:
     """Return recent alerts."""
-
-    limit = max(1, min(limit, 1000))
 
     query = """
         SELECT
@@ -130,7 +135,162 @@ def get_alerts(limit: int = 100) -> pd.DataFrame:
         )
 
 
-@st.cache_data(ttl=5, show_spinner=False)
+# ============================================================================
+# INCIDENTS
+# ============================================================================
+
+
+@st.cache_data(
+    ttl=5,
+    show_spinner=False,
+)
+def get_incidents(
+    limit: int = 100,
+) -> pd.DataFrame:
+    """Return recent incidents."""
+
+    query = """
+        SELECT
+            incident_id,
+            title,
+            description,
+            status,
+            severity,
+            risk_score,
+            source_ip,
+            created_at,
+            updated_at
+        FROM incidents
+        ORDER BY created_at DESC
+        LIMIT ?
+    """
+
+    with _get_connection() as connection:
+        return pd.read_sql_query(
+            query,
+            connection,
+            params=(limit,),
+        )
+
+
+@st.cache_data(
+    ttl=5,
+    show_spinner=False,
+)
+def get_incident(
+    incident_id: str,
+) -> pd.DataFrame:
+    """Return one incident by its identifier."""
+
+    query = """
+        SELECT
+            incident_id,
+            title,
+            description,
+            status,
+            severity,
+            risk_score,
+            source_ip,
+            created_at,
+            updated_at
+        FROM incidents
+        WHERE incident_id = ?
+        LIMIT 1
+    """
+
+    with _get_connection() as connection:
+        return pd.read_sql_query(
+            query,
+            connection,
+            params=(incident_id,),
+        )
+
+
+@st.cache_data(
+    ttl=5,
+    show_spinner=False,
+)
+def get_incident_alerts(
+    incident_id: str,
+) -> pd.DataFrame:
+    """Return alerts associated with one incident."""
+
+    query = """
+        SELECT
+            a.id,
+            a.rule_id,
+            a.title,
+            a.description,
+            a.severity,
+            a.risk_score,
+            a.source_ip,
+            a.username,
+            a.created_at
+        FROM alerts AS a
+        INNER JOIN incident_alerts AS ia
+            ON ia.alert_id = a.id
+        WHERE ia.incident_id = ?
+        ORDER BY a.created_at ASC
+    """
+
+    with _get_connection() as connection:
+        return pd.read_sql_query(
+            query,
+            connection,
+            params=(incident_id,),
+        )
+
+
+# ============================================================================
+# THREAT INTELLIGENCE
+# ============================================================================
+
+
+@st.cache_data(
+    ttl=5,
+    show_spinner=False,
+)
+def get_incident_threat_intelligence(
+    incident_id: str,
+) -> pd.DataFrame:
+    """Return threat intelligence matches associated with an incident."""
+
+    query = """
+        SELECT
+            ti.alert_id,
+            ti.indicator_value,
+            ti.indicator_type,
+            ti.matched_value,
+            ti.observable_type,
+            ti.confidence,
+            ti.severity,
+            ti.source,
+            ti.description,
+            ti.adjusted_risk_score
+        FROM threat_intelligence_matches AS ti
+        INNER JOIN incident_alerts AS ia
+            ON ia.alert_id = ti.alert_id
+        WHERE ia.incident_id = ?
+        ORDER BY ti.id ASC
+    """
+
+    with _get_connection() as connection:
+        return pd.read_sql_query(
+            query,
+            connection,
+            params=(incident_id,),
+        )
+
+
+# ============================================================================
+# ALERT ANALYTICS
+# ============================================================================
+
+
+@st.cache_data(
+    ttl=5,
+    show_spinner=False,
+)
 def get_alerts_by_severity() -> pd.DataFrame:
     """Return alert counts grouped by severity."""
 
@@ -140,14 +300,7 @@ def get_alerts_by_severity() -> pd.DataFrame:
             COUNT(*) AS count
         FROM alerts
         GROUP BY severity
-        ORDER BY
-            CASE severity
-                WHEN 'critical' THEN 1
-                WHEN 'high' THEN 2
-                WHEN 'medium' THEN 3
-                WHEN 'low' THEN 4
-                ELSE 5
-            END
+        ORDER BY count DESC
     """
 
     with _get_connection() as connection:
@@ -157,7 +310,10 @@ def get_alerts_by_severity() -> pd.DataFrame:
         )
 
 
-@st.cache_data(ttl=5, show_spinner=False)
+@st.cache_data(
+    ttl=5,
+    show_spinner=False,
+)
 def get_alerts_by_rule() -> pd.DataFrame:
     """Return alert counts grouped by detection rule."""
 
@@ -177,19 +333,21 @@ def get_alerts_by_rule() -> pd.DataFrame:
         )
 
 
-@st.cache_data(ttl=5, show_spinner=False)
+@st.cache_data(
+    ttl=5,
+    show_spinner=False,
+)
 def get_alerts_by_source_ip() -> pd.DataFrame:
-    """Return alert counts grouped by source IP."""
+    """Return alert activity grouped by source IP."""
 
     query = """
         SELECT
-            COALESCE(source_ip, 'Unknown') AS source_ip,
+            COALESCE(source_ip, 'unknown') AS source_ip,
             COUNT(*) AS count,
             MAX(risk_score) AS max_risk_score
         FROM alerts
         GROUP BY source_ip
-        ORDER BY count DESC, max_risk_score DESC
-        LIMIT 20
+        ORDER BY count DESC
     """
 
     with _get_connection() as connection:
@@ -199,7 +357,10 @@ def get_alerts_by_source_ip() -> pd.DataFrame:
         )
 
 
-@st.cache_data(ttl=5, show_spinner=False)
+@st.cache_data(
+    ttl=5,
+    show_spinner=False,
+)
 def get_alert_timeline() -> pd.DataFrame:
     """Return alert counts grouped by creation timestamp."""
 
@@ -245,41 +406,14 @@ def get_alert_timeline() -> pd.DataFrame:
 
 
 # ============================================================================
-# INCIDENTS
+# INCIDENT ANALYTICS
 # ============================================================================
 
 
-@st.cache_data(ttl=5, show_spinner=False)
-def get_incidents(limit: int = 100) -> pd.DataFrame:
-    """Return recent incidents."""
-
-    limit = max(1, min(limit, 1000))
-
-    query = """
-        SELECT
-            incident_id,
-            title,
-            description,
-            status,
-            severity,
-            risk_score,
-            source_ip,
-            created_at,
-            updated_at
-        FROM incidents
-        ORDER BY updated_at DESC
-        LIMIT ?
-    """
-
-    with _get_connection() as connection:
-        return pd.read_sql_query(
-            query,
-            connection,
-            params=(limit,),
-        )
-
-
-@st.cache_data(ttl=5, show_spinner=False)
+@st.cache_data(
+    ttl=5,
+    show_spinner=False,
+)
 def get_incidents_by_severity() -> pd.DataFrame:
     """Return incident counts grouped by severity."""
 
@@ -289,14 +423,7 @@ def get_incidents_by_severity() -> pd.DataFrame:
             COUNT(*) AS count
         FROM incidents
         GROUP BY severity
-        ORDER BY
-            CASE severity
-                WHEN 'critical' THEN 1
-                WHEN 'high' THEN 2
-                WHEN 'medium' THEN 3
-                WHEN 'low' THEN 4
-                ELSE 5
-            END
+        ORDER BY count DESC
     """
 
     with _get_connection() as connection:
@@ -306,7 +433,10 @@ def get_incidents_by_severity() -> pd.DataFrame:
         )
 
 
-@st.cache_data(ttl=5, show_spinner=False)
+@st.cache_data(
+    ttl=5,
+    show_spinner=False,
+)
 def get_incidents_by_status() -> pd.DataFrame:
     """Return incident counts grouped by status."""
 
@@ -332,7 +462,7 @@ def get_incidents_by_status() -> pd.DataFrame:
 
 
 def clear_dashboard_cache() -> None:
-    """Clear cached dashboard data."""
+    """Clear Streamlit dashboard data cache."""
 
     st.cache_data.clear()
 

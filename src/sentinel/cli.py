@@ -197,14 +197,33 @@ def analyze(
         readable=True,
         help="Path to the security log file to analyze.",
     ),
+    database_path: Path = typer.Option(  # noqa: B008
+        DEFAULT_DATABASE_PATH,
+        "--database",
+        "-d",
+        help="Path to the Sentinel SQLite database.",
+    ),
+    threat_intel_path: Path = typer.Option(  # noqa: B008
+        DEFAULT_THREAT_INTEL_PATH,
+        "--threat-intel",
+        help="Path to the threat intelligence feed.",
+    ),
 ) -> None:
-    """Analyze a security log file and persist alerts and incidents."""
+    """Analyze a security log file and persist enriched alerts and incidents."""
 
     console.print()
     console.print(
         "[bold cyan]Sentinel Security Analysis[/bold cyan]"
     )
     console.print("─" * 70)
+
+    if not threat_intel_path.is_file():
+        console.print(
+            "[red]Error:[/red] "
+            f"Threat intelligence feed not found: "
+            f"{threat_intel_path}"
+        )
+        raise typer.Exit(code=1)
 
     try:
         lines = read_log_file(log_file)
@@ -214,28 +233,63 @@ def analyze(
 
     events = parse_lines(lines)
 
-    console.print(f"Log file : {log_file}")
-    console.print(f"Lines    : {len(lines)}")
-    console.print(f"Events   : {len(events)}")
+    console.print(f"Log file      : {log_file}")
+    console.print(f"Lines         : {len(lines)}")
+    console.print(f"Events        : {len(events)}")
+    console.print(f"Database      : {database_path}")
+    console.print(f"Threat Intel  : {threat_intel_path}")
     console.print()
 
     engine = build_detection_engine()
     alerts = engine.analyze(events)
 
-    database = SentinelDatabase()
+    database = SentinelDatabase(database_path)
+
+    if not alerts:
+        display_alerts(alerts, RiskScorer())
+        return
+
+    threat_intel_analyzer = build_threat_intel_analyzer(
+        threat_intel_path
+    )
+
+    enriched_alerts = []
 
     for alert in alerts:
-        database.save_alert(alert)
+        enriched_alert = threat_intel_analyzer.analyze(
+            alert=alert,
+            events=events,
+        )
+
+        enriched_alerts.append(enriched_alert)
+        database.save_enriched_alert(enriched_alert)
 
     scorer = RiskScorer()
 
-    display_alerts(alerts, scorer)
-
-    if not alerts:
-        return
+    display_alerts(
+        [
+            enriched_alert.alert.model_copy(
+                update={
+                    "risk_score": enriched_alert.adjusted_risk_score,
+                }
+            )
+            for enriched_alert in enriched_alerts
+        ],
+        scorer,
+    )
 
     correlator = IncidentCorrelator()
-    incidents = correlator.correlate(alerts)
+
+    enriched_alert_models = [
+        enriched_alert.alert.model_copy(
+            update={
+                "risk_score": enriched_alert.adjusted_risk_score,
+            }
+        )
+        for enriched_alert in enriched_alerts
+    ]
+
+    incidents = correlator.correlate(enriched_alert_models)
 
     for incident in incidents:
         database.save_incident(incident)

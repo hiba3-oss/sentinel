@@ -1,23 +1,32 @@
-"""SQLite persistence layer for Sentinel."""
+﻿"""SQLite persistence layer for Sentinel."""
 
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from sentinel.intelligence.result import EnrichedAlert
 from sentinel.models import Alert, Incident
 
 DEFAULT_DB_PATH = Path("data/sentinel.db")
 
 
 class SentinelDatabase:
-    """Persist Sentinel alerts and incidents in SQLite."""
+    """Persist Sentinel alerts, threat intelligence, and incidents."""
 
-    def __init__(self, path: str | Path = DEFAULT_DB_PATH) -> None:
+    def __init__(
+        self,
+        path: str | Path = DEFAULT_DB_PATH,
+    ) -> None:
+        """Initialize the Sentinel database."""
+
         self.path = Path(path)
 
         if self.path.parent != Path("."):
-            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
 
         self._initialize()
 
@@ -76,10 +85,29 @@ class SentinelDatabase:
                     FOREIGN KEY (alert_id)
                         REFERENCES alerts(id)
                 );
+
+                CREATE TABLE IF NOT EXISTS threat_intelligence_matches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    alert_id TEXT NOT NULL,
+                    indicator_value TEXT NOT NULL,
+                    indicator_type TEXT NOT NULL,
+                    matched_value TEXT NOT NULL,
+                    observable_type TEXT NOT NULL,
+                    confidence INTEGER NOT NULL,
+                    severity TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    adjusted_risk_score INTEGER NOT NULL,
+                    FOREIGN KEY (alert_id)
+                        REFERENCES alerts(id)
+                );
                 """
             )
 
-    def save_alert(self, alert: Alert) -> None:
+    def save_alert(
+        self,
+        alert: Alert,
+    ) -> None:
         """Persist one security alert."""
 
         with self._connect() as connection:
@@ -111,7 +139,88 @@ class SentinelDatabase:
                 ),
             )
 
-    def save_incident(self, incident: Incident) -> None:
+    def save_enriched_alert(
+        self,
+        enriched_alert: EnrichedAlert,
+    ) -> None:
+        """Persist an alert together with its threat intelligence matches."""
+
+        alert = enriched_alert.alert
+
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO alerts (
+                    id,
+                    rule_id,
+                    title,
+                    description,
+                    severity,
+                    risk_score,
+                    source_ip,
+                    username,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    alert.id,
+                    alert.rule_id,
+                    alert.title,
+                    alert.description,
+                    alert.severity.value,
+                    enriched_alert.adjusted_risk_score,
+                    alert.source_ip,
+                    alert.username,
+                    alert.created_at.isoformat(),
+                ),
+            )
+
+            connection.execute(
+                """
+                DELETE FROM threat_intelligence_matches
+                WHERE alert_id = ?
+                """,
+                (alert.id,),
+            )
+
+            for match in enriched_alert.enrichment.matches:
+                indicator = match.indicator
+
+                connection.execute(
+                    """
+                    INSERT INTO threat_intelligence_matches (
+                        alert_id,
+                        indicator_value,
+                        indicator_type,
+                        matched_value,
+                        observable_type,
+                        confidence,
+                        severity,
+                        source,
+                        description,
+                        adjusted_risk_score
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        alert.id,
+                        indicator.value,
+                        indicator.indicator_type.value,
+                        match.matched_value,
+                        match.observable_type,
+                        indicator.confidence,
+                        indicator.severity,
+                        indicator.source,
+                        indicator.description,
+                        enriched_alert.adjusted_risk_score,
+                    ),
+                )
+
+    def save_incident(
+        self,
+        incident: Incident,
+    ) -> None:
         """Persist one incident and its alert relationships."""
 
         with self._connect() as connection:
@@ -158,7 +267,9 @@ class SentinelDatabase:
                     ),
                 )
 
-    def get_alerts(self) -> list[sqlite3.Row]:
+    def get_alerts(
+        self,
+    ) -> list[sqlite3.Row]:
         """Return all stored alerts."""
 
         with self._connect() as connection:
@@ -170,7 +281,9 @@ class SentinelDatabase:
                 """
             ).fetchall()
 
-    def get_incidents(self) -> list[sqlite3.Row]:
+    def get_incidents(
+        self,
+    ) -> list[sqlite3.Row]:
         """Return all stored incidents."""
 
         with self._connect() as connection:
@@ -199,4 +312,44 @@ class SentinelDatabase:
                 (incident_id,),
             ).fetchall()
 
-        return [row["alert_id"] for row in rows]
+        return [
+            row["alert_id"]
+            for row in rows
+        ]
+
+    def get_threat_intelligence_matches(
+        self,
+        alert_id: str,
+    ) -> list[sqlite3.Row]:
+        """Return threat intelligence matches for one alert."""
+
+        with self._connect() as connection:
+            return connection.execute(
+                """
+                SELECT *
+                FROM threat_intelligence_matches
+                WHERE alert_id = ?
+                ORDER BY id
+                """,
+                (alert_id,),
+            ).fetchall()
+
+    def get_incident_threat_intelligence(
+        self,
+        incident_id: str,
+    ) -> list[sqlite3.Row]:
+        """Return threat intelligence matches for an incident."""
+
+        with self._connect() as connection:
+            return connection.execute(
+                """
+                SELECT
+                    ti.*
+                FROM threat_intelligence_matches AS ti
+                INNER JOIN incident_alerts AS ia
+                    ON ia.alert_id = ti.alert_id
+                WHERE ia.incident_id = ?
+                ORDER BY ti.id
+                """,
+                (incident_id,),
+            ).fetchall()

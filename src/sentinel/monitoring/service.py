@@ -36,8 +36,13 @@ class MonitoringService:
 
     def process_new_lines(
         self,
-    ) -> tuple[list[Event], list[Alert], list[EnrichedAlert], list[Incident]]:
-        """Process, enrich, correlate, and persist newly appended log lines."""
+    ) -> tuple[
+        list[Event],
+        list[Alert],
+        list[EnrichedAlert],
+        list[Incident],
+    ]:
+        """Process, enrich, correlate, and persist new log lines."""
 
         lines = self.watcher.read_new_lines()
 
@@ -49,7 +54,9 @@ class MonitoringService:
         if not events:
             return [], [], [], []
 
-        alerts = self.detection_engine.analyze(events)
+        alerts = self.detection_engine.analyze(
+            events
+        )
 
         enriched_alerts = [
             self.threat_intel_analyzer.analyze(
@@ -62,7 +69,9 @@ class MonitoringService:
         enriched_persisted_alerts = [
             enriched_alert.alert.model_copy(
                 update={
-                    "risk_score": enriched_alert.adjusted_risk_score,
+                    "risk_score": (
+                        enriched_alert.adjusted_risk_score
+                    ),
                 }
             )
             for enriched_alert in enriched_alerts
@@ -72,10 +81,19 @@ class MonitoringService:
             enriched_persisted_alerts
         )
 
-        for alert in enriched_persisted_alerts:
-            self.database.save_alert(alert)
+        for enriched_alert in enriched_alerts:
+            self.database.save_enriched_alert(
+                enriched_alert
+            )
 
         for incident in incidents:
-            self.database.save_incident(incident)
+            self.database.save_incident(
+                incident
+            )
 
-        return events, alerts, enriched_alerts, incidents
+        return (
+            events,
+            alerts,
+            enriched_alerts,
+            incidents,
+        )

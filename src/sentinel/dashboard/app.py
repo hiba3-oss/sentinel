@@ -1,4 +1,4 @@
-﻿"""Sentinel Security Operations Center dashboard."""
+"""Sentinel Security Operations Center dashboard."""
 
 from __future__ import annotations
 
@@ -13,6 +13,9 @@ from sentinel.dashboard.data import (
     get_alerts_by_severity,
     get_alerts_by_source_ip,
     get_dashboard_stats,
+    get_incident,
+    get_incident_alerts,
+    get_incident_threat_intelligence,
     get_incidents,
     get_incidents_by_severity,
     get_incidents_by_status,
@@ -164,6 +167,7 @@ with st.sidebar:
             "Overview",
             "Alerts",
             "Incidents",
+            "Investigation",
         ],
         label_visibility="collapsed",
     )
@@ -735,6 +739,399 @@ elif page == "Incidents":
                 ),
             },
         )
+
+
+# ============================================================================
+# INVESTIGATION
+# ============================================================================
+
+elif page == "Investigation":
+
+    st.markdown("## Incident Investigation")
+
+    st.caption(
+        "Investigate correlated alerts and understand incident context."
+    )
+
+    incidents_df = get_incidents(limit=500)
+
+    if incidents_df.empty:
+        show_empty_state(
+            "No incidents are available for investigation."
+        )
+
+    else:
+        # --------------------------------------------------------------------
+        # Incident selector
+        # --------------------------------------------------------------------
+
+        incident_options = incidents_df[
+            "incident_id"
+        ].astype(str).tolist()
+
+        selected_incident_id = st.selectbox(
+            "Select an incident",
+            incident_options,
+        )
+
+        incident_df = get_incident(
+            selected_incident_id
+        )
+
+        if incident_df.empty:
+            st.error(
+                "The selected incident could not be loaded."
+            )
+
+        else:
+            incident = incident_df.iloc[0]
+
+            # ----------------------------------------------------------------
+            # Incident header
+            # ----------------------------------------------------------------
+
+            st.markdown("---")
+
+            st.markdown(
+                f"### {incident['incident_id']}"
+            )
+
+            st.caption(
+                str(incident["title"])
+            )
+
+            # ----------------------------------------------------------------
+            # Incident KPIs
+            # ----------------------------------------------------------------
+
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                st.metric(
+                    "Severity",
+                    severity_label(
+                        incident["severity"]
+                    ),
+                )
+
+            with col2:
+                st.metric(
+                    "Risk Score",
+                    f"{int(incident['risk_score'])} / 100",
+                )
+
+            with col3:
+                st.metric(
+                    "Status",
+                    status_label(
+                        incident["status"]
+                    ),
+                )
+
+            with col4:
+                source_ip = incident["source_ip"]
+
+                st.metric(
+                    "Source IP",
+                    source_ip
+                    if pd.notna(source_ip)
+                    else "Unknown",
+                )
+
+            # ----------------------------------------------------------------
+            # Incident description
+            # ----------------------------------------------------------------
+
+            st.markdown("### Incident Context")
+
+            st.info(
+                str(incident["description"])
+            )
+
+            # ----------------------------------------------------------------
+            # Timeline / metadata
+            # ----------------------------------------------------------------
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("#### Created")
+
+                st.write(
+                    str(incident["created_at"])
+                )
+
+            with col2:
+                st.markdown("#### Last Updated")
+
+                st.write(
+                    str(incident["updated_at"])
+                )
+
+            # ----------------------------------------------------------------
+            # Related alerts
+            # ----------------------------------------------------------------
+
+            st.markdown("### Related Alerts")
+
+            related_alerts = get_incident_alerts(
+                selected_incident_id
+            )
+
+            if related_alerts.empty:
+                show_empty_state(
+                    "No alerts are associated with this incident."
+                )
+
+            else:
+                display_alerts = related_alerts.copy()
+
+                display_alerts["severity"] = (
+                    display_alerts["severity"]
+                    .map(severity_label)
+                )
+
+                display_alerts = display_alerts.rename(
+                    columns={
+                        "id": "Alert ID",
+                        "rule_id": "Detection Rule",
+                        "title": "Title",
+                        "description": "Description",
+                        "severity": "Severity",
+                        "risk_score": "Risk",
+                        "source_ip": "Source IP",
+                        "username": "Username",
+                        "created_at": "Created",
+                    }
+                )
+
+                st.dataframe(
+                    display_alerts,
+                    width="stretch",
+                    hide_index=True,
+                    height=300,
+                    column_config={
+                        "Alert ID": st.column_config.TextColumn(
+                            "Alert ID",
+                        ),
+                        "Detection Rule": st.column_config.TextColumn(
+                            "Detection Rule",
+                        ),
+                        "Title": st.column_config.TextColumn(
+                            "Title",
+                        ),
+                        "Description": st.column_config.TextColumn(
+                            "Description",
+                        ),
+                        "Risk": st.column_config.NumberColumn(
+                            "Risk",
+                            min_value=0,
+                            max_value=100,
+                        ),
+                    },
+                )
+
+                # ------------------------------------------------------------
+                # Detection rules
+                # ------------------------------------------------------------
+
+                st.markdown("### Detection Rules")
+
+                rules = (
+                    related_alerts["rule_id"]
+                    .dropna()
+                    .astype(str)
+                    .drop_duplicates()
+                    .tolist()
+                )
+
+                for rule in rules:
+                    st.markdown(
+                        f"- `{rule}`"
+                    )
+
+                # ------------------------------------------------------------
+                # Threat intelligence
+                # ------------------------------------------------------------
+
+                st.markdown("### Threat Intelligence")
+
+                threat_intel = get_incident_threat_intelligence(
+                    selected_incident_id
+                )
+
+                if threat_intel.empty:
+                    show_empty_state(
+                        "No threat intelligence matches were found for this incident."
+                    )
+
+                else:
+                    st.caption(
+                        f"{len(threat_intel)} threat intelligence match(es) "
+                        "associated with this incident."
+                    )
+
+                    display_ti = threat_intel.copy()
+
+                    display_ti["severity"] = (
+                        display_ti["severity"]
+                        .map(severity_label)
+                    )
+
+                    display_ti = display_ti.rename(
+                        columns={
+                            "alert_id": "Alert ID",
+                            "indicator_value": "Indicator",
+                            "indicator_type": "Type",
+                            "matched_value": "Matched Value",
+                            "observable_type": "Observable",
+                            "confidence": "Confidence",
+                            "severity": "Severity",
+                            "source": "Feed",
+                            "description": "Description",
+                            "adjusted_risk_score": "Adjusted Risk",
+                        }
+                    )
+
+                    st.dataframe(
+                        display_ti,
+                        width="stretch",
+                        hide_index=True,
+                        column_config={
+                            "Alert ID": st.column_config.TextColumn(
+                                "Alert ID",
+                            ),
+                            "Indicator": st.column_config.TextColumn(
+                                "Indicator",
+                            ),
+                            "Type": st.column_config.TextColumn(
+                                "Type",
+                            ),
+                            "Matched Value": st.column_config.TextColumn(
+                                "Matched Value",
+                            ),
+                            "Observable": st.column_config.TextColumn(
+                                "Observable",
+                            ),
+                            "Confidence": st.column_config.ProgressColumn(
+                                "Confidence",
+                                min_value=0,
+                                max_value=100,
+                                format="%d%%",
+                            ),
+                            "Severity": st.column_config.TextColumn(
+                                "Severity",
+                            ),
+                            "Feed": st.column_config.TextColumn(
+                                "Feed",
+                            ),
+                            "Description": st.column_config.TextColumn(
+                                "Description",
+                            ),
+                            "Adjusted Risk": st.column_config.NumberColumn(
+                                "Adjusted Risk",
+                                min_value=0,
+                                max_value=100,
+                            ),
+                        },
+                    )
+
+                    # --------------------------------------------------------
+                    # Threat intelligence summary
+                    # --------------------------------------------------------
+
+                    st.markdown("#### Threat Intelligence Summary")
+
+                    ti_col1, ti_col2, ti_col3 = st.columns(3)
+
+                    with ti_col1:
+                        max_confidence = int(
+                            pd.to_numeric(
+                                threat_intel["confidence"],
+                                errors="coerce",
+                            ).max()
+                        )
+
+                        st.metric(
+                            "Highest Confidence",
+                            f"{max_confidence}%",
+                        )
+
+                    with ti_col2:
+                        max_adjusted_risk = int(
+                            pd.to_numeric(
+                                threat_intel["adjusted_risk_score"],
+                                errors="coerce",
+                            ).max()
+                        )
+
+                        st.metric(
+                            "Adjusted Risk",
+                            f"{max_adjusted_risk} / 100",
+                        )
+
+                    with ti_col3:
+                        feeds = (
+                            threat_intel["source"]
+                            .dropna()
+                            .astype(str)
+                            .nunique()
+                        )
+
+                        st.metric(
+                            "Intel Feeds",
+                            feeds,
+                        )
+
+                # ------------------------------------------------------------
+                # Investigation timeline
+                # ------------------------------------------------------------
+
+                st.markdown("### Investigation Timeline")
+
+                timeline = related_alerts[
+                    [
+                        "created_at",
+                        "title",
+                        "rule_id",
+                        "severity",
+                        "risk_score",
+                    ]
+                ].copy()
+
+                timeline = timeline.sort_values(
+                    "created_at"
+                )
+
+                for _, alert in timeline.iterrows():
+
+                    severity = severity_label(
+                        alert["severity"]
+                    )
+
+                    timestamp = str(
+                        alert["created_at"]
+                    )
+
+                    title = str(
+                        alert["title"]
+                    )
+
+                    rule = str(
+                        alert["rule_id"]
+                    )
+
+                    risk = int(
+                        alert["risk_score"]
+                    )
+
+                    st.markdown(
+                        f"**{timestamp}**  \\n"
+                        f"**{severity}** ? {title}  \\n"
+                        f"`{rule}` ? Risk: **{risk}/100**"
+                    )
+
+                    st.divider()
 
 
 # ============================================================================
