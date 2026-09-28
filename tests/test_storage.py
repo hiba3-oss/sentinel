@@ -89,23 +89,27 @@ def test_save_alert_is_idempotent(tmp_path) -> None:
     assert len(alerts) == 1
 
 
-def test_save_and_get_incident(tmp_path) -> None:
+def test_get_incident_by_id(tmp_path) -> None:
     database = SentinelDatabase(tmp_path / "sentinel.db")
 
-    alert = make_alert()
     incident = make_incident()
 
-    database.save_alert(alert)
     database.save_incident(incident)
 
-    incidents = database.get_incidents()
+    result = database.get_incident("INC-0001")
 
-    assert len(incidents) == 1
-    assert incidents[0]["incident_id"] == "INC-0001"
-    assert incidents[0]["status"] == "open"
-    assert incidents[0]["severity"] == "critical"
-    assert incidents[0]["risk_score"] == 100
+    assert result is not None
+    assert result["incident_id"] == "INC-0001"
+    assert result["status"] == "open"
+    assert result["severity"] == "critical"
+    assert result["risk_score"] == 100
 
+def test_get_unknown_incident(tmp_path) -> None:
+    database = SentinelDatabase(tmp_path / "sentinel.db")
+
+    result = database.get_incident("INC-9999")
+
+    assert result is None
 
 def test_incident_alert_relationship_is_saved(tmp_path) -> None:
     database = SentinelDatabase(tmp_path / "sentinel.db")

@@ -281,6 +281,24 @@ class SentinelDatabase:
                 """
             ).fetchall()
 
+    def get_incident(
+        self,
+        incident_id: str,
+    ) -> sqlite3.Row | None:
+        """Return one incident by identifier."""
+
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT *
+                FROM incidents
+                WHERE incident_id = ?
+                """,
+                (incident_id,),
+            ).fetchone()
+
+        return row
+
     def get_incidents(
         self,
     ) -> list[sqlite3.Row]:
