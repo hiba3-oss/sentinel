@@ -1,5 +1,9 @@
 # Sentinel
 
+[![Sentinel Tests](https://github.com/hiba3-oss/sentinel/actions/workflows/tests.yml/badge.svg)](https://github.com/hiba3-oss/sentinel/actions/workflows/tests.yml)
+![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)
+[![License](https://img.shields.io/github/license/hiba3-oss/sentinel)](LICENSE)
+
 **Defensive cybersecurity monitoring and threat detection platform built with Python.**
 
 Sentinel is a modular security monitoring platform designed to ingest security events, detect suspicious activity, enrich alerts with threat intelligence, calculate risk, and correlate related alerts into incidents.
