@@ -42,6 +42,7 @@ data/*.db
 
 # Logs
 *.log
+!data/sample_logs/*.log
 
 # Local configuration
 config.local.*

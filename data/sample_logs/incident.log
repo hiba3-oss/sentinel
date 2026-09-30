@@ -1,0 +1,6 @@
+2026-09-25T10:00:01Z ssh authentication_failure user=root src=10.10.10.50 msg="Failed password for root"
+2026-09-25T10:00:05Z ssh authentication_failure user=root src=10.10.10.50 msg="Failed password for root"
+2026-09-25T10:00:09Z ssh authentication_failure user=root src=10.10.10.50 msg="Failed password for root"
+2026-09-25T10:00:13Z ssh authentication_failure user=root src=10.10.10.50 msg="Failed password for root"
+2026-09-25T10:00:17Z ssh authentication_failure user=root src=10.10.10.50 msg="Failed password for root"
+2026-09-25T10:00:25Z ssh authentication_success user=root src=10.10.10.50 msg="Accepted password for root"
